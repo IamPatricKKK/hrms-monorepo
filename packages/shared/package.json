@@ -1,0 +1,16 @@
+{
+  "name": "@hrms/shared",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
+    "lint": "echo \"no lint\""
+  },
+  "devDependencies": {
+    "typescript": "5.4.5"
+  }
+}
