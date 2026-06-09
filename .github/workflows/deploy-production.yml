@@ -129,17 +129,14 @@ jobs:
           GHCR_ACTOR: ${{ github.actor }}
           IMAGE_TAG: ${{ github.sha }}
 
-  # ── 4) Migrate: TypeORM synchronize chạy tự động khi api boot ──
-  #     Job này CHỜ & XÁC MINH api khởi động OK = schema đã sync.
-  #     (Project dùng synchronize:true, chưa có migration files.
-  #      Sau này nếu chuyển sang migration thật → chạy lệnh ở đây.)
+  # ── 4) Migrate: chạy TypeORM migration:run (versioned, KHÔNG mất data) ─
   migrate:
-    name: Migrate (TypeORM auto-sync)
+    name: Migrate DB (typeorm migration:run)
     needs: deploy
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Chờ API sync schema & healthy
+      - name: Chạy migration + verify API healthy
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -149,16 +146,22 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/hrms
-            echo "Chờ API khởi động (synchronize tạo/cập nhật schema)..."
-            for i in $(seq 1 30); do
+
+            echo "▶ Áp migration (chỉ chạy migration mới, giữ nguyên dữ liệu)..."
+            docker compose -f docker-compose.prod.yml exec -T \
+              -e TS_NODE_TRANSPILE_ONLY=1 api \
+              pnpm --filter @hrms/api migration:run
+
+            echo "▶ Chờ API healthy..."
+            for i in $(seq 1 20); do
               if docker compose -f docker-compose.prod.yml exec -T api \
                    wget -qO- http://127.0.0.1:4000/health >/dev/null 2>&1; then
-                echo "✅ API healthy — schema đã đồng bộ."
+                echo "✅ Migration xong & API healthy."
                 exit 0
               fi
-              echo "  ...thử lại ($i/30)"; sleep 5
+              echo "  ...thử lại ($i/20)"; sleep 5
             done
-            echo "❌ API không healthy sau 150s — xem log:"
+            echo "❌ API không healthy — xem log:"
             docker compose -f docker-compose.prod.yml logs --tail=80 api
             exit 1
 

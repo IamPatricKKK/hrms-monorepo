@@ -2,14 +2,15 @@
  * Seed CLI.  Chạy bằng:
  *   pnpm --filter @hrms/api seed
  *
- * - Drop tất cả bảng → tạo lại schema (nhờ synchronize: true của TypeORM)
+ * - Áp migration để đảm bảo schema (KHÔNG synchronize / KHÔNG drop schema)
+ * - TRUNCATE toàn bộ dữ liệu (giữ schema + bảng migrations) rồi insert lại
  * - Insert tài khoản & dữ liệu mẫu khớp với báo cáo kiểm thử
  */
 import "reflect-metadata";
 import { DataSource } from "typeorm";
 import * as bcrypt from "bcrypt";
 
-import { ALL_ENTITIES } from "../data-source";
+import { ALL_ENTITIES, MIGRATIONS_GLOB } from "../data-source";
 import { Department } from "../entities/department.entity";
 import { Position } from "../entities/position.entity";
 import { Employee } from "../entities/employee.entity";
@@ -27,12 +28,18 @@ async function main() {
     password: process.env.POSTGRES_PASSWORD || "hrms_dev_pass",
     database: process.env.POSTGRES_DB || "hrms",
     entities: ALL_ENTITIES,
-    synchronize: true,
-    dropSchema: true,
+    migrations: [MIGRATIONS_GLOB],
+    synchronize: false,
     logging: false,
   });
   await ds.initialize();
-  console.log("[seed] schema initialized");
+  // Đảm bảo schema tồn tại đúng theo migration (an toàn dữ liệu, không drop)
+  await ds.runMigrations();
+  // Xoá sạch dữ liệu nhưng GIỮ schema + bảng migrations
+  await ds.query(
+    'TRUNCATE TABLE "attendance","payroll","leaves","users","employees","positions","departments" RESTART IDENTITY CASCADE;',
+  );
+  console.log("[seed] migrations applied + data cleared");
 
   // ---- Departments ----
   const deptRepo = ds.getRepository(Department);

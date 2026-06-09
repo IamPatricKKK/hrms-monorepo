@@ -10,6 +10,9 @@
     "start:prod": "node dist/main",
     "lint": "echo \"no lint\"",
     "seed": "ts-node -r tsconfig-paths/register src/seed/seed.ts",
+    "typeorm": "typeorm-ts-node-commonjs -d src/typeorm.datasource.ts",
+    "migration:run": "pnpm run typeorm migration:run",
+    "migration:revert": "pnpm run typeorm migration:revert",
     "test": "jest",
     "test:e2e": "jest --config test/jest-e2e.json --runInBand"
   },
