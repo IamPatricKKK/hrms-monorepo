@@ -10,8 +10,7 @@
     "start:prod": "node dist/main",
     "lint": "echo \"no lint\"",
     "seed": "ts-node -r tsconfig-paths/register src/seed/seed.ts",
-    "test": "jest",
-    "test:e2e": "jest --config test/jest-e2e.json --runInBand"
+    "test": "jest"
   },
   "jest": {
     "moduleFileExtensions": [

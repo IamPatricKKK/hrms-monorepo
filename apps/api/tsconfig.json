@@ -7,7 +7,7 @@
     "baseUrl": "./",
     "incremental": true,
     "paths": {
-      "@hrms/shared": ["../../packages/shared/src"]
+        "@hrms/shared": ["../../packages/shared/dist"]
     }
   },
   "include": ["src/**/*"],
