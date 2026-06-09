@@ -65,22 +65,36 @@ cat ./hrms_deploy
 
 ---
 
-## 4. Deploy
+## 4. Deploy — 5 job trong workflow "Deploy Production"
 
-- **Tự động:** mỗi lần `push` lên `main`.
-- **Thủ công:** tab **Actions → Deploy Production → Run workflow**.
+```
+build-api ┐
+          ├─→ deploy (web+api+db+caddy) ─→ migrate ─→ [seed: opt-in]
+build-web ┘
+```
 
-Luồng: build 2 image → push GHCR (`:latest` + `:<git-sha>`) → scp `docker-compose.prod.yml` + `Caddyfile` lên `/opt/hrms` → tạo `.env` từ secrets → `docker compose pull && up -d`.
+| Job | Làm gì |
+|---|---|
+| `build-api` / `build-web` | Build & push 2 image lên GHCR (`:latest` + `:<git-sha>`), chạy song song |
+| `deploy` | scp compose+Caddyfile → tạo `.env` từ secrets → `docker compose pull && up -d` |
+| `migrate` | **TypeORM `synchronize:true` tự tạo/cập nhật schema khi api boot.** Job này chờ & xác minh `/health` OK = schema đã đồng bộ |
+| `seed` | ⚠️ Chỉ chạy khi tick `seed_data` lúc Run workflow — **xoá sạch DB** rồi tạo lại dữ liệu mẫu |
+
+- **Tự động:** mỗi lần `push` lên `main` → chạy `build → deploy → migrate` (KHÔNG seed).
+- **Thủ công:** **Actions → Deploy Production → Run workflow**.
 
 ---
 
 ## 5. Khởi tạo dữ liệu lần đầu (⚠️ xoá sạch DB)
 
-`synchronize:true` của TypeORM tự tạo bảng khi api khởi động. Để tạo tài khoản admin + dữ liệu mẫu, chạy **1 lần**:
+Project dùng **`synchronize:true`** (chưa có migration files) → schema tự tạo khi api khởi động, không cần lệnh migrate riêng.
 
-**Actions → Seed Production DB → Run workflow → gõ `WIPE`.**
+Để tạo tài khoản admin + dữ liệu mẫu lần đầu:
 
-> `seed.ts` có `dropSchema:true` nên KHÔNG bao giờ chạy tự động — chỉ chạy tay khi cố ý reset.
+**Actions → Deploy Production → Run workflow → tick `seed_data` ✅ → Run.**
+
+> `seed.ts` có `dropSchema:true` nên KHÔNG bao giờ chạy khi `push` — chỉ chạy khi bạn chủ động tick `seed_data`.
+> Muốn migration thật (versioned, không mất dữ liệu): đổi `synchronize:false`, tạo thư mục `migrations/`, và thay job `migrate` bằng `typeorm migration:run`.
 
 ---
 
