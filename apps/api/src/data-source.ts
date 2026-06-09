@@ -17,7 +17,20 @@ export const ALL_ENTITIES = [
   Leave,
 ];
 
+const isTestEnv = process.env.NODE_ENV === "test" || process.env.E2E_SQLITE === "1";
+
 export const dataSourceOptions = (): TypeOrmModuleOptions => {
+  if (isTestEnv) {
+    return {
+      type: "better-sqlite3",
+      database: ":memory:",
+      entities: ALL_ENTITIES,
+      synchronize: true,
+      dropSchema: true,
+      logging: false,
+    };
+  }
+
   const url = process.env.DATABASE_URL;
   if (url) {
     return {
