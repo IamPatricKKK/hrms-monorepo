@@ -1,11 +1,12 @@
 # ───────────────────────────────────────────────────────────────
-# Production stack (chạy trên VPS 42.96.18.126)
-# postgres + api + web + caddy. Image api/web pull từ GHCR.
-# Biến môi trường lấy từ file .env (xem .env.production.example).
+# Production stack HRMS (chạy trên VPS 42.96.18.126)
+# postgres + api + web. KHÔNG có Caddy riêng — DÙNG CHUNG caddy sẵn có
+# của project air-quality (network ngoài: airquality_prod).
+# Image api/web pull từ GHCR. Biến môi trường lấy từ file .env.
 # ───────────────────────────────────────────────────────────────
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ghcr.io/iampatrickkk/postgres:16-alpine
     container_name: hrms-postgres
     restart: unless-stopped
     environment:
@@ -19,7 +20,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    networks: [hrms]
+    networks: [internal]
 
   api:
     image: ghcr.io/iampatrickkk/hrms-api:${IMAGE_TAG:-latest}
@@ -36,7 +37,7 @@ services:
       PORT: "4000"
       CORS_ORIGIN: https://hrwebsite.airquality.info.vn
     expose: ["4000"]
-    networks: [hrms]
+    networks: [internal, edge] # internal: tới postgres; edge: để caddy proxy
 
   web:
     image: ghcr.io/iampatrickkk/hrms-web:${IMAGE_TAG:-latest}
@@ -47,27 +48,14 @@ services:
       NODE_ENV: production
       PORT: "3000"
     expose: ["3000"]
-    networks: [hrms]
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: hrms-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on: [web, api]
-    networks: [hrms]
+    networks: [edge] # chỉ cần để caddy proxy (web gọi api qua URL public)
 
 volumes:
   postgres-data:
-  caddy-data:
-  caddy-config:
 
 networks:
-  hrms:
+  internal:
     driver: bridge
+  edge:
+    external: true
+    name: airquality_prod # caddy của air-quality nằm trên network này

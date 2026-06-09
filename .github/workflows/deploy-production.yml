@@ -89,14 +89,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy compose & Caddyfile lên VPS
+      - name: Copy compose lên VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          source: "docker-compose.prod.yml,Caddyfile"
+          source: "docker-compose.prod.yml"
           target: /opt/hrms
 
       - name: Pull image & khởi động stack

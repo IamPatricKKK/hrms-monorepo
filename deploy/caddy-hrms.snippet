@@ -1,0 +1,17 @@
+# ═══════════════════════════════════════════════════════════════
+# CHÈN 2 BLOCK NÀY vào CUỐI file Caddyfile sẵn có của air-quality:
+#   /opt/airquality/infra/Caddyfile
+# Caddy (airquality-caddy) tự xin Let's Encrypt cho 2 domain HRMS.
+# Upstream dùng CONTAINER NAME (hrms-web / hrms-api) — đã join network
+# airquality_prod nên caddy resolve được.
+# ───────────────────────────────────────────────────────────────
+
+hrwebsite.airquality.info.vn {
+	encode gzip zstd
+	reverse_proxy hrms-web:3000
+}
+
+api.hrwebsite.airquality.info.vn {
+	encode gzip zstd
+	reverse_proxy hrms-api:4000
+}

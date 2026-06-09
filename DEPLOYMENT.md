@@ -1,15 +1,20 @@
 # 🚀 Deploy Production — HRMS
 
 Stack: **pnpm + Turbo monorepo** → `apps/api` (NestJS) + `apps/web` (Next.js) + Postgres.
-Hạ tầng: **1 VPS** `42.96.18.126`, Docker Compose, **Caddy** tự động HTTPS.
+Hạ tầng: **1 VPS** `42.96.18.126`, Docker Compose. **Dùng chung Caddy** sẵn có của
+project air-quality (`airquality-caddy`, network `airquality_prod`) làm reverse proxy + HTTPS.
 CI/CD: GitHub Actions build image → đẩy **GHCR** → SSH vào VPS `pull` & `up`.
 
 | Thành phần | Domain | Container | Cổng nội bộ |
 |---|---|---|---|
-| Frontend | `hrwebsite.airquality.info.vn` | `web` | 3000 |
-| Backend  | `api.hrwebsite.airquality.info.vn` | `api` | 4000 |
-| Database | (nội bộ) | `postgres` | 5432 |
-| Proxy/SSL | 80 + 443 | `caddy` | — |
+| Frontend | `hrwebsite.airquality.info.vn` | `hrms-web` | 3000 |
+| Backend  | `api.hrwebsite.airquality.info.vn` | `hrms-api` | 4000 |
+| Database | (nội bộ) | `hrms-postgres` | 5432 |
+| Proxy/SSL | 80 + 443 | `airquality-caddy` (dùng chung) | — |
+
+> ⚠️ VPS đã chạy stack **air-quality** (caddy giữ 80/443, postgres giữ host:5432).
+> HRMS **KHÔNG** dựng Caddy mới và **KHÔNG** publish cổng postgres → tránh xung đột.
+> HRMS chỉ thêm `hrms-api`/`hrms-web` vào network `airquality_prod` để Caddy proxy tới.
 
 ---
 
@@ -17,18 +22,35 @@ CI/CD: GitHub Actions build image → đẩy **GHCR** → SSH vào VPS `pull` & 
 
 ```bash
 ssh root@42.96.18.126
-
-# Docker + compose plugin (nếu chưa có)
-docker --version && docker compose version
-
-# Thư mục deploy
+docker --version && docker compose version   # đã có sẵn
 mkdir -p /opt/hrms
-
-# Mở firewall 80/443 (nếu dùng ufw)
-ufw allow 80 && ufw allow 443
 ```
 
-> Đảm bảo **không** có Nginx/Apache nào đang chiếm cổng 80/443: `ss -tlnp | grep -E ':80|:443'`.
+Không cần đụng firewall (80/443 đã do air-quality mở sẵn).
+
+---
+
+## 1b. Thêm domain HRMS vào Caddy sẵn có (làm 1 lần, SAU khi deploy lần đầu)
+
+Mở `/opt/airquality/infra/Caddyfile`, **thêm vào cuối** 2 block (xem `deploy/caddy-hrms.snippet`):
+
+```caddy
+hrwebsite.airquality.info.vn {
+	encode gzip zstd
+	reverse_proxy hrms-web:3000
+}
+api.hrwebsite.airquality.info.vn {
+	encode gzip zstd
+	reverse_proxy hrms-api:4000
+}
+```
+
+Rồi nạp lại Caddy (không downtime):
+
+```bash
+docker exec airquality-caddy caddy validate --config /etc/caddy/Caddyfile
+docker exec airquality-caddy caddy reload   --config /etc/caddy/Caddyfile
+```
 
 ---
 
@@ -69,32 +91,41 @@ cat ./hrms_deploy
 
 ```
 build-api ┐
-          ├─→ deploy (web+api+db+caddy) ─→ migrate ─→ [seed: opt-in]
+          ├─→ deploy (web+api+db) ─────→ migrate ─→ [seed: opt-in]
 build-web ┘
 ```
 
 | Job | Làm gì |
 |---|---|
 | `build-api` / `build-web` | Build & push 2 image lên GHCR (`:latest` + `:<git-sha>`), chạy song song |
-| `deploy` | scp compose+Caddyfile → tạo `.env` từ secrets → `docker compose pull && up -d` |
-| `migrate` | **TypeORM `synchronize:true` tự tạo/cập nhật schema khi api boot.** Job này chờ & xác minh `/health` OK = schema đã đồng bộ |
-| `seed` | ⚠️ Chỉ chạy khi tick `seed_data` lúc Run workflow — **xoá sạch DB** rồi tạo lại dữ liệu mẫu |
+| `deploy` | scp compose → tạo `.env` từ secrets → `docker compose pull && up -d` (api/web join network `airquality_prod`) |
+| `migrate` | Chạy `typeorm migration:run` (versioned, **không mất dữ liệu**) rồi xác minh `/health` |
+| `seed` | ⚠️ Chỉ chạy khi tick `seed_data` lúc Run workflow — chạy migration + **TRUNCATE dữ liệu** rồi nạp lại dữ liệu mẫu |
 
 - **Tự động:** mỗi lần `push` lên `main` → chạy `build → deploy → migrate` (KHÔNG seed).
 - **Thủ công:** **Actions → Deploy Production → Run workflow**.
 
 ---
 
-## 5. Khởi tạo dữ liệu lần đầu (⚠️ xoá sạch DB)
+## 5. Migration & seed
 
-Project dùng **`synchronize:true`** (chưa có migration files) → schema tự tạo khi api khởi động, không cần lệnh migrate riêng.
+**Migration (thật, versioned):** `apps/api/src/migrations/`. Schema KHÔNG còn dùng
+`synchronize` — job `migrate` chạy `typeorm migration:run` mỗi lần deploy, chỉ áp
+migration mới, **không mất dữ liệu**.
 
-Để tạo tài khoản admin + dữ liệu mẫu lần đầu:
+- Sau khi đổi/ thêm `@Entity`, tạo migration mới ở local:
+  ```bash
+  # cần 1 Postgres để so sánh schema
+  pnpm --filter @hrms/api typeorm migration:generate src/migrations/<TênThayĐổi>
+  ```
+  rồi commit file migration → lần deploy sau job `migrate` tự áp.
+
+**Seed dữ liệu mẫu (opt-in, ⚠️ xoá dữ liệu):** tạo admin + dữ liệu demo lần đầu:
 
 **Actions → Deploy Production → Run workflow → tick `seed_data` ✅ → Run.**
 
-> `seed.ts` có `dropSchema:true` nên KHÔNG bao giờ chạy khi `push` — chỉ chạy khi bạn chủ động tick `seed_data`.
-> Muốn migration thật (versioned, không mất dữ liệu): đổi `synchronize:false`, tạo thư mục `migrations/`, và thay job `migrate` bằng `typeorm migration:run`.
+> Seed chạy migration để chắc schema, rồi **TRUNCATE toàn bộ bảng** và nạp lại dữ liệu mẫu
+> (giữ schema + bảng `migrations`). KHÔNG bao giờ chạy khi `push` — chỉ khi bạn chủ động tick.
 
 ---
 
@@ -105,7 +136,7 @@ ssh root@42.96.18.126
 cd /opt/hrms
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f api
-docker compose -f docker-compose.prod.yml logs -f caddy   # xem việc cấp SSL
+docker logs -f airquality-caddy            # log Caddy dùng chung (cấp SSL)
 
 curl -I https://hrwebsite.airquality.info.vn
 curl    https://api.hrwebsite.airquality.info.vn/health    # {"status":"ok",...}
