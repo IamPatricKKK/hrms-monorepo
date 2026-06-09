@@ -1,0 +1,29 @@
+name: Seed Production DB (⚠️ XOÁ SẠCH DỮ LIỆU)
+
+# Chạy TAY. seed.ts có dropSchema:true → xoá toàn bộ rồi tạo lại dữ liệu mẫu.
+# Chỉ dùng lần đầu khởi tạo, hoặc khi cố ý reset.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Gõ chính xác "WIPE" để xác nhận xoá & seed lại DB'
+        required: true
+
+jobs:
+  seed:
+    if: ${{ github.event.inputs.confirm == 'WIPE' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run seed bên trong container api
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd /opt/hrms
+            docker compose -f docker-compose.prod.yml exec -T api \
+              pnpm --filter @hrms/api seed

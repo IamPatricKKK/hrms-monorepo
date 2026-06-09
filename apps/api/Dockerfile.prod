@@ -1,0 +1,26 @@
+# ───────────────────────────────────────────────────────────────
+# Production Dockerfile cho NestJS API (@hrms/api)
+# Build trong GitHub Actions, đẩy lên GHCR, chạy trên VPS.
+# ───────────────────────────────────────────────────────────────
+FROM node:20-alpine
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@8.15.6 --activate
+
+# 1) Cache layer dependencies: copy manifest trước
+COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared/package.json ./packages/shared/
+RUN pnpm install --no-frozen-lockfile
+
+# 2) Copy source và build
+COPY apps/api ./apps/api
+COPY packages/shared ./packages/shared
+RUN pnpm --filter @hrms/shared build \
+ && pnpm --filter @hrms/api build
+
+ENV NODE_ENV=production
+EXPOSE 4000
+
+# main.ts → dist/main.js (nest build, outDir ./dist)
+CMD ["node", "apps/api/dist/main.js"]
